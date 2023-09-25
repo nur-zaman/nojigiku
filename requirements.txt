@@ -3,3 +3,4 @@ asyncio
 mss
 browserhistory
 pywin32
+pyinstaller
