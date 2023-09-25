@@ -1,0 +1,1 @@
+PyInstaller --onefile --noconsole --icon=87.ico nojigiku.py
